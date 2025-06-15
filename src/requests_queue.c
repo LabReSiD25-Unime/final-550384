@@ -1,6 +1,6 @@
 #include "requests_queue.h"
 
-request_queue_t* createQueue() {
+request_queue_t* createQueue(int maxSize) {
     request_queue_t* q = (request_queue_t*)malloc(sizeof(request_queue_t));
     if (q == NULL) {
         printf("Errore: impossibile allocare memoria per la coda\n");
@@ -9,6 +9,54 @@ request_queue_t* createQueue() {
     q->front = NULL;
     q->rear = NULL;
     q->size = 0;
+
+    q->maxSize = maxSize;
+    q->totalProduced = 0;
+    q->totalConsumed = 0;
+    q->shutdownFlag = false;
+
+    // Inizializza mutex e condition variables
+    if (pthread_mutex_init(&q->mutex, NULL) != 0) {
+        printf("Errore: impossibile inizializzare mutex\n");
+        free(q);
+        return NULL;
+    }
+    
+    if (pthread_cond_init(&q->notEmpty, NULL) != 0) {
+        printf("Errore: impossibile inizializzare condition variable notEmpty\n");
+        pthread_mutex_destroy(&q->mutex);
+        free(q);
+        return NULL;
+    }
+    
+    if (pthread_cond_init(&q->notFull, NULL) != 0) {
+        printf("Errore: impossibile inizializzare condition variable notFull\n");
+        pthread_cond_destroy(&q->notEmpty);
+        pthread_mutex_destroy(&q->mutex);
+        free(q);
+        return NULL;
+    }
+    
+    // Inizializza semafori
+    if (sem_init(&q->emptySlots, 0, maxSize) != 0) {
+        printf("Errore: impossibile inizializzare semaforo emptySlots\n");
+        pthread_cond_destroy(&q->notFull);
+        pthread_cond_destroy(&q->notEmpty);
+        pthread_mutex_destroy(&q->mutex);
+        free(q);
+        return NULL;
+    }
+    
+    if (sem_init(&q->fullSlots, 0, 0) != 0) {
+        printf("Errore: impossibile inizializzare semaforo fullSlots\n");
+        sem_destroy(&q->emptySlots);
+        pthread_cond_destroy(&q->notFull);
+        pthread_cond_destroy(&q->notEmpty);
+        pthread_mutex_destroy(&q->mutex);
+        free(q);
+        return NULL;
+    }
+
     return q;
 }
 
@@ -16,6 +64,17 @@ request_queue_t* createQueue() {
 // Funzione per verificare se la coda è vuota
 bool isEmpty(request_queue_t* q) {
     return (q == NULL || q->front == NULL);
+}
+
+
+// Funzione per verificare se la coda è vuota (chiamata con mutex già acquisito)
+bool isEmptyUnsafe(request_queue_t* q) {
+    return (q->size == 0);
+}
+
+// Funzione per verificare se la coda è piena (chiamata con mutex già acquisito)
+bool isFullUnsafe(request_queue_t* q) {
+    return (q->size >= q->maxSize);
 }
 
 // Funzione per ottenere la dimensione della coda
@@ -29,7 +88,33 @@ bool enqueue(request_queue_t* q, http_request_t *request) {
         printf("Errore: coda non inizializzata\n");
         return false;
     }
+
+    // Attendi uno slot vuoto (semaforo)
+    sem_wait(&q->emptySlots);
     
+    // Acquisisci il mutex per accesso esclusivo
+    pthread_mutex_lock(&q->mutex);
+
+    
+    // Verifica se la coda è in shutdown
+    if (q->shutdownFlag) {
+        pthread_mutex_unlock(&q->mutex);
+        sem_post(&q->emptySlots); // Rilascia il semaforo
+        return false;
+    }
+    
+    // Attendi finché la coda non è piena (usando condition variable)
+    while (isFullUnsafe(q) && !q->shutdownFlag) {
+        pthread_cond_wait(&q->notFull, &q->mutex);
+    }
+    
+    if (q->shutdownFlag) {
+        pthread_mutex_unlock(&q->mutex);
+        sem_post(&q->emptySlots);
+        return false;
+    }
+
+
     // Crea un nuovo nodo
     client_request_node_t* newNode = (client_request_node_t*)malloc(sizeof(client_request_node_t));
     if (newNode == NULL) {
@@ -40,27 +125,53 @@ bool enqueue(request_queue_t* q, http_request_t *request) {
     newNode->request = *request;
     newNode->next = NULL;
     
-    // Se la coda è vuota
-    if (isEmpty(q)) {
+    // Inserisci nella coda
+    if (isEmptyUnsafe(q)) {
         q->front = newNode;
         q->rear = newNode;
     } else {
-        // Aggiungi il nuovo nodo alla fine
         q->rear->next = newNode;
         q->rear = newNode;
     }
     
     q->size++;
+    q->totalProduced++;
+        
+    // Segnala che la coda non è vuota
+    pthread_cond_signal(&q->notEmpty);
+    
+    // Rilascia il mutex
+    pthread_mutex_unlock(&q->mutex);
+    
+    // Segnala che c'è un elemento pieno
+    sem_post(&q->fullSlots);
+    
     return true;
 }
 
 // Funzione per rimuovere un elemento dalla coda (dequeue/pop)
 bool dequeue(request_queue_t* q, http_request_t* request) {
-    if (isEmpty(q)) {
-        printf("Errore: tentativo di dequeue su coda vuota\n");
-        return false;
+
+    if (q == NULL || request == NULL) return false;
+
+    // Attendi un elemento pieno (semaforo)
+    sem_wait(&q->fullSlots);
+    
+    // Acquisisci il mutex per accesso esclusivo
+    pthread_mutex_lock(&q->mutex);
+    
+    // Attendi finché la coda non è vuota (usando condition variable)
+    while (isEmptyUnsafe(q) && !q->shutdownFlag) {
+        pthread_cond_wait(&q->notEmpty, &q->mutex);
     }
     
+    // Se la coda è in shutdown e vuota, termina
+    if (q->shutdownFlag && isEmptyUnsafe(q)) {
+        pthread_mutex_unlock(&q->mutex);
+        sem_post(&q->fullSlots); // Rilascia il semaforo
+        return false;
+    }
+
     client_request_node_t* temp = q->front;
     *request = temp->request;
     
@@ -71,8 +182,21 @@ bool dequeue(request_queue_t* q, http_request_t* request) {
         q->rear = NULL;
     }
     
-    free(temp);
     q->size--;
+    q->totalConsumed++;
+    
+
+    free(temp);
+    
+    // Segnala che la coda non è piena
+    pthread_cond_signal(&q->notFull);
+    
+    // Rilascia il mutex
+    pthread_mutex_unlock(&q->mutex);
+    
+    // Segnala che c'è uno slot vuoto
+    sem_post(&q->emptySlots);
+    
     return true;
 }
 
@@ -130,5 +254,15 @@ void destroyQueue(request_queue_t* q) {
     
     clearQueue(q);
     free(q);
+}
+
+
+// Funzione thread-safe per ottenere le statistiche
+void getStatistics(request_queue_t* q, int* size, int* produced, int* consumed) {
+    pthread_mutex_lock(&q->mutex);
+    *size = q->size;
+    *produced = q->totalProduced;
+    *consumed = q->totalConsumed;
+    pthread_mutex_unlock(&q->mutex);
 }
 
