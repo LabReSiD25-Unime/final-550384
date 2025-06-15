@@ -37,8 +37,7 @@ int init_server_socket(int port){
     // allows the association of a socket with a specific IP address and port.
     struct sockaddr_in serv_addr;
 
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    {
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         perror("socket failed");
         exit(EXIT_FAILURE);
     }
@@ -47,20 +46,18 @@ int init_server_socket(int port){
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(port);
 
-    if (bind(server_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
-    {
+    if (bind(server_fd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0){
         perror("bind failed");
         exit(EXIT_FAILURE);
     }
 
-    if (listen(server_fd, MAX_CLIENTS) < 0)
-    {
+    if (listen(server_fd, MAX_CLIENTS) < 0){
         perror("listen failed");
         exit(EXIT_FAILURE);
     }
 
     set_nonblocking(server_fd);
-    
+
     return server_fd;
 
 }

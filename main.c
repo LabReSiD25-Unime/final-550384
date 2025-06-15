@@ -1,8 +1,16 @@
 // main.c
 #include "server_utils.h"
+#include "http_utils.h"
+#include "requests_queue.h"
+
+
+request_queue_t *requests_q;
 
 int main() {
     printf("Start Server...\n");
+
+    requests_q = createQueue();
+
     socklen_t client_len = sizeof(client_addr);
 
     server_fd = init_server_socket(8080);
@@ -21,7 +29,9 @@ int main() {
         }else if (triggered_event_num > 0){
             
             for(int i = 0; i < triggered_event_num; i++){
+
                 current_fd = events[i].data.fd;
+
                 if(current_fd == server_fd){
                     //client wants to connect to the server socket
                     new_client_fd = accept(server_fd,(struct sockaddr *)&client_addr, &client_len);
@@ -30,6 +40,7 @@ int main() {
                         perror("Accept failed...");
                     }else{
                         // client has been accepted successfully
+                        
                         printf("client accettato\n");
                         set_nonblocking(new_client_fd);
                         add_fd_to_epoll_istance(new_client_fd, epoll_fd, EPOLLIN); // Corretto ordine parametri
@@ -43,8 +54,22 @@ int main() {
                     if(recived_data_size > 0){
                         reciving_buffer[recived_data_size] = '\0';
 
-                        //manage requests enqueue
-                        printf("Received: %s\n", reciving_buffer);
+                        http_request_t *request = create_http_request();
+                        if (!request) {
+                            printf("Errore nella creazione della richiesta\n");
+                            return 1;
+                        }
+                        
+                        if (parse_http_request(reciving_buffer, request) != 0) {
+                            printf("Errore nel parsing della richiesta\n");
+                            free_http_request(request);
+                            return 1;
+                        }
+
+                        enqueue(requests_q, request);
+                        
+                        printQueue(requests_q);
+
                     }else if(recived_data_size == 0){
                         // Client disconnesso
                         printf("Client disconnected\n");
