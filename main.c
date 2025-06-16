@@ -2,7 +2,9 @@
 #include "server_utils.h"
 #include "http_utils.h"
 #include "requests_queue.h"
+#include "workers.h"
 
+worker_pool_t *worker_pool;
 
 int main() {
     const int SERVER_PORT = 8080;

@@ -2,6 +2,7 @@
 
 #include "server_utils.h"
 #include "http_utils.h"
+#include "workers.h"
 
 // DEFINIZIONI delle variabili globali (solo qui!)
 int server_fd;    
@@ -119,7 +120,7 @@ int add_fd_to_epoll_istance(int fd_to_monitor, int epoll_istance, int event_type
     return 0;
 }
 
- int handle_client_data(int client_fd) {
+int handle_client_data(int client_fd) {
     char receiving_buffer[BUFFER_SIZE];
     memset(receiving_buffer, 0, BUFFER_SIZE);
     
@@ -141,9 +142,10 @@ int add_fd_to_epoll_istance(int fd_to_monitor, int epoll_istance, int event_type
             return -1;
         }
         
-        enqueue(requests_q, request);
-        printQueue(requests_q);
-        
+        enqueue(worker_pool->queue, request);
+        //printQueue(worker_pool->queue);
+    
+    
         return 0;
         
     } else if (received_data_size == 0) {
@@ -189,12 +191,8 @@ int add_fd_to_epoll_istance(int fd_to_monitor, int epoll_istance, int event_type
 int initialize_server(int port) {
     printf("Avvio del server...\n");
     
-    // Inizializza la coda delle richieste
-    requests_q = createQueue(10);
-    if (!requests_q) {
-        printf("Errore nella creazione della coda delle richieste\n");
-        return -1;
-    }
+
+    worker_pool = worker_pool_init(10,worker_thread);
     
     // Inizializza il socket del server
     int server_fd = init_server_socket(port);

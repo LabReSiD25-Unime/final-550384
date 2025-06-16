@@ -51,7 +51,4 @@ void clearQueue(request_queue_t* q);
 void destroyQueue(request_queue_t* q);
 void getStatistics(request_queue_t* q, int* size, int* produced, int* consumed);
 
-
-
-
 #endif

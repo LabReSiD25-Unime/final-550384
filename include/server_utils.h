@@ -26,7 +26,7 @@ extern int new_client_fd;
 extern size_t recived_data_size;
 extern char reciving_buffer[BUFFER_SIZE];
 // Variabili globali
-extern request_queue_t *requests_q;
+//extern request_queue_t *requests_q;
 
 
 

@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <time.h>
 
 // Costanti
 #define MAX_METHOD_LEN 16
@@ -17,6 +18,7 @@
 #define MAX_PARAM_NAME_LEN 256
 #define MAX_PARAM_VALUE_LEN 1024
 #define MAX_STATUS_MESSAGE_LEN 256
+#define MAX_RESPONSE_SIZE 65536
 
 // Struct per gli header HTTP
 typedef struct {
@@ -64,7 +66,6 @@ typedef struct {
 } http_response_t;
 
 
-
 // Enum per i metodi HTTP
 typedef enum {
     HTTP_GET,
@@ -107,6 +108,9 @@ typedef struct {
 } http_request_t;
 
 // Funzioni di utility
+const char* status_to_message(http_status_t status);
+char* get_current_time_string();
+const char* status_to_message(http_status_t status);
 http_method_t string_to_method(const char *method_str);
 const char* method_to_string(http_method_t method);
 void trim_whitespace(char *str);
@@ -115,6 +119,7 @@ int parse_header_line(const char *line, http_request_t *request);
 int parse_query_string(const char *query_string, http_request_t *request);
 void url_decode(char *dst, const char *src);
 int hex_to_int(char c);
+
 
 // Funzioni principali
 http_request_t* create_http_request();
@@ -127,6 +132,19 @@ const char* get_header_value(const http_request_t *request, const char *header_n
 const char* get_query_param(const http_request_t *request, const char *param_name);
 int has_header(const http_request_t *request, const char *header_name);
 int has_query_param(const http_request_t *request, const char *param_name);
+
+// Funzioni per le risposte
+http_response_t* create_http_response();
+void free_http_response(http_response_t *response);
+int set_response_status(http_response_t *response, http_status_t status);
+int add_response_header(http_response_t *response, const char *name, const char *value);
+int set_response_body(http_response_t *response, const char *body, const char *content_type);
+int set_response_json(http_response_t *response, const char *json);
+int set_response_html(http_response_t *response, const char *html);
+int set_response_text(http_response_t *response, const char *text);
+int build_response(http_response_t *response);
+const char* get_response_string(http_response_t *response);
+void print_http_response(const http_response_t *response);
 
 http_response_t* create_http_response();
 

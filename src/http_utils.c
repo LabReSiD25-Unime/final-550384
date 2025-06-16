@@ -377,3 +377,275 @@ void print_http_request(const http_request_t *request) {
     printf("==================\n");
 }
 
+http_response_t* create_http_response() {
+    http_response_t *response = calloc(1, sizeof(http_response_t));
+    if (!response) {
+        return NULL;
+    }
+    
+    strcpy(response->version, "HTTP/1.1");
+    response->status_code = HTTP_OK;
+    strcpy(response->status_message, status_to_message(HTTP_OK));
+    response->header_count = 0;
+    response->body = NULL;
+    response->body_length = 0;
+    response->raw_response = NULL;
+    response->raw_response_size = 0;
+    
+    // Aggiungi header di default
+    add_response_header(response, "Date", get_current_time_string());
+    add_response_header(response, "Server", "HTTP-Parser/1.0");
+    add_response_header(response, "Connection", "close");
+    
+    return response;
+}
+
+void free_http_response(http_response_t *response) {
+    if (response) {
+        if (response->body) {
+            free(response->body);
+        }
+        if (response->raw_response) {
+            free(response->raw_response);
+        }
+        free(response);
+    }
+}
+
+
+
+int set_response_status(http_response_t *response, http_status_t status) {
+    if (!response) {
+        return -1;
+    }
+    
+    response->status_code = status;
+    strncpy(response->status_message, status_to_message(status), MAX_STATUS_MESSAGE_LEN - 1);
+    response->status_message[MAX_STATUS_MESSAGE_LEN - 1] = '\0';
+    
+    return 0;
+}
+
+int add_response_header(http_response_t *response, const char *name, const char *value) {
+    if (!response || !name || !value || response->header_count >= MAX_HEADERS) {
+        return -1;
+    }
+    
+    // Controlla se l'header esiste già (per aggiornarlo)
+    for (int i = 0; i < response->header_count; i++) {
+        if (strcasecmp(response->headers[i].name, name) == 0) {
+            strncpy(response->headers[i].value, value, MAX_HEADER_VALUE_LEN - 1);
+            response->headers[i].value[MAX_HEADER_VALUE_LEN - 1] = '\0';
+            return 0;
+        }
+    }
+    
+    // Aggiungi nuovo header
+    strncpy(response->headers[response->header_count].name, name, MAX_HEADER_NAME_LEN - 1);
+    response->headers[response->header_count].name[MAX_HEADER_NAME_LEN - 1] = '\0';
+    
+    strncpy(response->headers[response->header_count].value, value, MAX_HEADER_VALUE_LEN - 1);
+    response->headers[response->header_count].value[MAX_HEADER_VALUE_LEN - 1] = '\0';
+    
+    response->header_count++;
+    return 0;
+}
+
+int set_response_body(http_response_t *response, const char *body, const char *content_type) {
+    if (!response || !body) {
+        return -1;
+    }
+    
+    // Libera il body precedente se esiste
+    if (response->body) {
+        free(response->body);
+    }
+    
+    size_t body_len = strlen(body);
+    response->body = malloc(body_len + 1);
+    if (!response->body) {
+        return -1;
+    }
+    
+    strcpy(response->body, body);
+    response->body_length = body_len;
+    
+    // Aggiorna gli header
+    char content_length_str[32];
+    snprintf(content_length_str, sizeof(content_length_str), "%zu", body_len);
+    add_response_header(response, "Content-Length", content_length_str);
+    
+    if (content_type) {
+        add_response_header(response, "Content-Type", content_type);
+    }
+    
+    return 0;
+}
+
+
+int set_response_json(http_response_t *response, const char *json) {
+    return set_response_body(response, json, "application/json; charset=utf-8");
+}
+
+int set_response_html(http_response_t *response, const char *html) {
+    return set_response_body(response, html, "text/html; charset=utf-8");
+}
+
+int set_response_text(http_response_t *response, const char *text) {
+    return set_response_body(response, text, "text/plain; charset=utf-8");
+}
+
+int build_response(http_response_t *response) {
+    if (!response) {
+        return -1;
+    }
+    
+    // Libera la risposta precedente se esiste
+    if (response->raw_response) {
+        free(response->raw_response);
+    }
+    
+    // Alloca buffer per la risposta
+    response->raw_response = malloc(MAX_RESPONSE_SIZE);
+    if (!response->raw_response) {
+        return -1;
+    }
+    
+    // Costruisci la status line
+    int written = snprintf(response->raw_response, MAX_RESPONSE_SIZE,
+                          "%s %d %s\r\n",
+                          response->version,
+                          response->status_code,
+                          response->status_message);
+    
+    if (written >= MAX_RESPONSE_SIZE) {
+        free(response->raw_response);
+        response->raw_response = NULL;
+        return -1;
+    }
+    
+    // Aggiungi gli headers
+    for (int i = 0; i < response->header_count; i++) {
+        int header_written = snprintf(response->raw_response + written,
+                                     MAX_RESPONSE_SIZE - written,
+                                     "%s: %s\r\n",
+                                     response->headers[i].name,
+                                     response->headers[i].value);
+        
+        if (header_written >= (MAX_RESPONSE_SIZE - written)) {
+            free(response->raw_response);
+            response->raw_response = NULL;
+            return -1;
+        }
+        
+        written += header_written;
+    }
+    
+    // Aggiungi la linea vuota
+    if (written + 2 >= MAX_RESPONSE_SIZE) {
+        free(response->raw_response);
+        response->raw_response = NULL;
+        return -1;
+    }
+    
+    strcat(response->raw_response + written, "\r\n");
+    written += 2;
+    
+    // Aggiungi il body se presente
+    if (response->body && response->body_length > 0) {
+        if (written + response->body_length >= MAX_RESPONSE_SIZE) {
+            free(response->raw_response);
+            response->raw_response = NULL;
+            return -1;
+        }
+        
+        memcpy(response->raw_response + written, response->body, response->body_length);
+        written += response->body_length;
+    }
+    
+    response->raw_response_size = written;
+    return 0;
+}
+
+const char* get_response_string(http_response_t *response) {
+    if (!response) {
+        return NULL;
+    }
+    
+    if (!response->raw_response) {
+        if (build_response(response) != 0) {
+            return NULL;
+        }
+    }
+    
+    return response->raw_response;
+}
+
+void print_http_response(const http_response_t *response) {
+    if (!response) {
+        printf("Response is NULL\n");
+        return;
+    }
+    
+    printf("=== HTTP RESPONSE ===\n");
+    printf("Version: %s\n", response->version);
+    printf("Status: %d %s\n", response->status_code, response->status_message);
+    
+    printf("\nHeaders (%d):\n", response->header_count);
+    for (int i = 0; i < response->header_count; i++) {
+        printf("  %s: %s\n", response->headers[i].name, response->headers[i].value);
+    }
+    
+    if (response->body && response->body_length > 0) {
+        printf("\nBody (%zu bytes):\n", response->body_length);
+        printf("%.*s\n", (int)response->body_length, response->body);
+    }
+    
+    printf("====================\n");
+}
+
+
+const char* get_response_header_value(const http_response_t *response, const char *header_name) {
+    if (!response || !header_name) {
+        return NULL;
+    }
+    
+    for (int i = 0; i < response->header_count; i++) {
+        if (strcasecmp(response->headers[i].name, header_name) == 0) {
+            return response->headers[i].value;
+        }
+    }
+    
+    return NULL;
+}
+
+const char* status_to_message(http_status_t status) {
+    switch (status) {
+        case HTTP_OK: return "OK";
+        case HTTP_CREATED: return "Created";
+        case HTTP_ACCEPTED: return "Accepted";
+        case HTTP_NO_CONTENT: return "No Content";
+        case HTTP_MOVED_PERMANENTLY: return "Moved Permanently";
+        case HTTP_FOUND: return "Found";
+        case HTTP_NOT_MODIFIED: return "Not Modified";
+        case HTTP_BAD_REQUEST: return "Bad Request";
+        case HTTP_UNAUTHORIZED: return "Unauthorized";
+        case HTTP_FORBIDDEN: return "Forbidden";
+        case HTTP_NOT_FOUND: return "Not Found";
+        case HTTP_METHOD_NOT_ALLOWED: return "Method Not Allowed";
+        case HTTP_CONFLICT: return "Conflict";
+        case HTTP_INTERNAL_SERVER_ERROR: return "Internal Server Error";
+        case HTTP_NOT_IMPLEMENTED: return "Not Implemented";
+        case HTTP_BAD_GATEWAY: return "Bad Gateway";
+        case HTTP_SERVICE_UNAVAILABLE: return "Service Unavailable";
+        default: return "Unknown";
+    }
+}
+
+char* get_current_time_string() {
+    static char time_buffer[64];
+    time_t now = time(NULL);
+    struct tm *gmt = gmtime(&now);
+    strftime(time_buffer, sizeof(time_buffer), "%a, %d %b %Y %H:%M:%S GMT", gmt);
+    return time_buffer;
+}
