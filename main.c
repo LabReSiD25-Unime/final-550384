@@ -4,12 +4,17 @@
 #include "requests_queue.h"
 #include "workers.h"
 
+
 worker_pool_t *worker_pool;
+//redis_pool_t *redis_pool;
 
 int main() {
     const int SERVER_PORT = 8080;
     const int MAX_EVENTS = 10;
-    
+
+
+    //init_redis_pool(10,redis_pool);
+
     // Inizializza il server
     int server_fd = initialize_server(SERVER_PORT);
     if (server_fd < 0) {

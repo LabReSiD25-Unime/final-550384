@@ -1,0 +1,20 @@
+/add/book  {
+    "id_book": 1,
+    "title" : "Libro",
+    "author" : "Maccio Capatonda",
+    "price" : 120.0
+}
+
+
+/get/book {
+    "id_book": 1,
+}
+
+/delete/book {
+    "id_book": 1
+}
+
+/update/price {
+    "id_book" : 1,
+    "new_price" : 120.0
+}

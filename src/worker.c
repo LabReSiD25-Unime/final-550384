@@ -1,5 +1,7 @@
 #include "workers.h"
 #include "requests_queue.h"
+#include "server_utils.h"
+#include "book.h"
 
 // Inizializza il pool di worker thread
 worker_pool_t* worker_pool_init(int num_threads, void* (*process_func)(void*)) {
@@ -27,7 +29,8 @@ worker_pool_t* worker_pool_init(int num_threads, void* (*process_func)(void*)) {
 
     // Crea i thread worker
     for (int i = 0; i < num_threads; i++) {
-        if (pthread_create(&pool->threads[i], NULL, worker_thread, pool) != 0) {
+        int thread_id = i;
+        if (pthread_create(&pool->threads[i], NULL, worker_thread, &thread_id) != 0) {
             // Errore nella creazione del thread
             pool->num_threads = i; // Aggiorna il numero di thread creati
             worker_pool_destroy(pool);
@@ -39,14 +42,38 @@ worker_pool_t* worker_pool_init(int num_threads, void* (*process_func)(void*)) {
 }
 
 void* worker_thread(void *arg) {
+
     sleep(3);
-    http_request_t * incoming_request = malloc(sizeof(http_request_t));
-    
-    if(dequeue(worker_pool->queue, incoming_request)){
-        print_http_request(incoming_request);
+
+    redisContext *c = connect_redis();
+    if (c == NULL) {
+        return;
     }
 
-    printQueue(worker_pool->queue);
+    client_request_node_t * incoming_request = malloc(sizeof(client_request_node_t));
+    
+    while (1){
+        if(dequeue_node(worker_pool->queue, incoming_request)){
+
+            http_response_t *response = process_rest_request(&incoming_request->request);
+            
+            if (response) {
+                
+                const char *response_string = get_response_string(response);
+                if (response_string) {
+                    printf("\n--- Risposta raw ---\n");
+                    printf("%s\n", response_string);
+                }
+                
+                send(incoming_request->client_fd,response_string,strlen(response_string),0);
+                free_http_response(response);
+            } 
+        }
+
+        printQueue(worker_pool->queue);
+    }
+    
+
     return NULL;
 }
 
@@ -78,22 +105,54 @@ void worker_pool_destroy(worker_pool_t *pool) {
     free(pool);
 }
 
+void crud_create(const http_request_t *request, http_response_t *response){
 
-/*         http_response_t *json_response = create_http_response();
-        if (json_response) {
-            set_response_status(json_response, HTTP_OK);
-            set_response_json(json_response, "{\"status\":\"success\",\"message\":\"Utente creato\"}");
-            add_response_header(json_response, "X-Custom-Header", "MyValue");
+    if(strncmp(request->path, "/add/book", 10) != 0) {
+        printf("Endpoint non supportato: %s\n", request->path);
+        set_response_status(response, HTTP_NOT_FOUND);
+        set_response_json(response, "{\"error\": \"Endpoint non trovato\"}");
+        return;
+    }
+
+    
+
+    set_response_status(response, HTTP_OK);
+    set_response_json(response, "{\"status\":\"success\",\"message\":\"Utente creato\"}");
+    add_response_header(response, "X-Custom-Header", "MyValue");
+
+
+}
+
+http_response_t* process_rest_request(http_request_t *request){
+
+    http_response_t *response = create_http_response();
+
+    // Routing basato sul metodo HTTP
+    switch (request->method) {
+        case HTTP_POST:
+            crud_create(request, response);
+            break;
             
-            print_http_response(json_response);
+        case HTTP_GET:
+            printf("GET\n");
+            break;
             
-            const char *response_string = get_response_string(json_response);
-            if (response_string) {
-                printf("\n--- Risposta raw ---\n");
-                printf("%s\n", response_string);
-            }
+        case HTTP_PUT:
+        case HTTP_PATCH:
             
-            send(client_fd,response_string,strlen(response_string),0);
-            free_http_response(json_response);
-        } 
- */
+            break;
+            
+        case HTTP_DELETE:
+            printf("Delete\n");
+            break;
+            
+        default:
+            printf("Metodo HTTP non supportato: %s\n", request->method_str);
+            set_response_status(response, HTTP_METHOD_NOT_ALLOWED);
+            set_response_json(response, "{\"error\": \"Metodo non supportato\"}");
+            add_response_header(response, "Allow", "GET, POST, PUT, PATCH, DELETE");
+            break;
+    }
+
+    return response;
+}

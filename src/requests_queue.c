@@ -149,6 +149,65 @@ bool enqueue(request_queue_t* q, http_request_t *request) {
     return true;
 }
 
+bool enqueue_node(request_queue_t* q, client_request_node_t *node) {
+    if (q == NULL) {
+        printf("Errore: coda non inizializzata\n");
+        return false;
+    }
+
+    // Attendi uno slot vuoto (semaforo)
+    sem_wait(&q->emptySlots);
+    
+    // Acquisisci il mutex per accesso esclusivo
+    pthread_mutex_lock(&q->mutex);
+
+    
+    // Verifica se la coda è in shutdown
+    if (q->shutdownFlag) {
+        pthread_mutex_unlock(&q->mutex);
+        sem_post(&q->emptySlots); // Rilascia il semaforo
+        return false;
+    }
+    
+    // Attendi finché la coda non è piena (usando condition variable)
+    while (isFullUnsafe(q) && !q->shutdownFlag) {
+        pthread_cond_wait(&q->notFull, &q->mutex);
+    }
+    
+    if (q->shutdownFlag) {
+        pthread_mutex_unlock(&q->mutex);
+        sem_post(&q->emptySlots);
+        return false;
+    }
+
+
+
+    
+    // Inserisci nella coda
+    if (isEmptyUnsafe(q)) {
+        q->front = node;
+        q->rear = node;
+    } else {
+        q->rear->next = node;
+        q->rear = node;
+    }
+    
+    q->size++;
+    q->totalProduced++;
+        
+    // Segnala che la coda non è vuota
+    pthread_cond_signal(&q->notEmpty);
+    
+    // Rilascia il mutex
+    pthread_mutex_unlock(&q->mutex);
+    
+    // Segnala che c'è un elemento pieno
+    sem_post(&q->fullSlots);
+    
+    return true;
+}
+
+
 // Funzione per rimuovere un elemento dalla coda (dequeue/pop)
 bool dequeue(request_queue_t* q, http_request_t* request) {
 
@@ -171,6 +230,7 @@ bool dequeue(request_queue_t* q, http_request_t* request) {
         sem_post(&q->fullSlots); // Rilascia il semaforo
         return false;
     }
+
 
     client_request_node_t* temp = q->front;
     *request = temp->request;
@@ -199,6 +259,62 @@ bool dequeue(request_queue_t* q, http_request_t* request) {
     
     return true;
 }
+
+
+// Funzione per rimuovere un elemento dalla coda ma funziona piu a basso livello 
+bool dequeue_node(request_queue_t* q, client_request_node_t* node) {
+
+    if (q == NULL || node == NULL) return false;
+
+    // Attendi un elemento pieno (semaforo)
+    sem_wait(&q->fullSlots);
+    
+    // Acquisisci il mutex per accesso esclusivo
+    pthread_mutex_lock(&q->mutex);
+    
+    // Attendi finché la coda non è vuota (usando condition variable)
+    while (isEmptyUnsafe(q) && !q->shutdownFlag) {
+        pthread_cond_wait(&q->notEmpty, &q->mutex);
+    }
+    
+    // Se la coda è in shutdown e vuota, termina
+    if (q->shutdownFlag && isEmptyUnsafe(q)) {
+        pthread_mutex_unlock(&q->mutex);
+        sem_post(&q->fullSlots); // Rilascia il semaforo
+        return false;
+    }
+
+
+    client_request_node_t* temp = q->front;
+    //*request = temp->request;
+    *node =  *temp;
+    
+    
+    q->front = q->front->next;
+    
+    // Se la coda diventa vuota
+    if (q->front == NULL) {
+        q->rear = NULL;
+    }
+    
+    q->size--;
+    q->totalConsumed++;
+    
+
+    free(temp);
+    
+    // Segnala che la coda non è piena
+    pthread_cond_signal(&q->notFull);
+    
+    // Rilascia il mutex
+    pthread_mutex_unlock(&q->mutex);
+    
+    // Segnala che c'è uno slot vuoto
+    sem_post(&q->emptySlots);
+    
+    return true;
+}
+
 
 // Funzione per vedere il primo elemento senza rimuoverlo (peek/front)
 bool peek(request_queue_t* q, http_request_t* request) {

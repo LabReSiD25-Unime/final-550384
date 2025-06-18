@@ -9,8 +9,8 @@
 # Configurazione compilatore e flag
 CC = gcc
 CFLAGS = -Wall -Wextra -g
-INCLUDES = -Iinclude
-LIBS = 
+INCLUDES = -Iinclude 
+LIBS = -Llib -lhiredis
 
 # Directory
 SRCDIR = src

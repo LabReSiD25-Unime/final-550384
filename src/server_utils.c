@@ -3,6 +3,7 @@
 #include "server_utils.h"
 #include "http_utils.h"
 #include "workers.h"
+#include "book.h"
 
 // DEFINIZIONI delle variabili globali (solo qui!)
 int server_fd;    
@@ -13,10 +14,13 @@ int new_client_fd;
 size_t recived_data_size;
 char reciving_buffer[BUFFER_SIZE];
 
+
 struct epoll_event events[MAX_CLIENTS];
 struct sockaddr_in client_addr;
 struct epoll_event client_event;
 request_queue_t *requests_q;
+
+
 
 int set_nonblocking(int sockfd) {
     int flags = fcntl(sockfd, F_GETFL, 0);
@@ -142,8 +146,18 @@ int handle_client_data(int client_fd) {
             return -1;
         }
         
-        enqueue(worker_pool->queue, request);
-        //printQueue(worker_pool->queue);
+        client_request_node_t* newNode = (client_request_node_t*)malloc(sizeof(client_request_node_t));
+        if (newNode == NULL) {
+            printf("Errore: impossibile allocare memoria per il nuovo nodo\n");
+            return false;
+        }
+
+        newNode->request = *request;
+        newNode->next = NULL;
+        newNode->client_fd = client_fd;
+        
+        enqueue_node(worker_pool->queue, newNode);
+
     
     
         return 0;
@@ -234,3 +248,5 @@ int initialize_server(int port) {
     // Cleanup della coda (se hai una funzione di cleanup)
     // cleanup_queue(requests_q);
 }
+
+

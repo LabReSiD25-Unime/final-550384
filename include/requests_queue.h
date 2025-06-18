@@ -44,6 +44,9 @@ bool isFullUnsafe(request_queue_t* q);
 int getSize(request_queue_t* q);
 bool enqueue(request_queue_t* q, http_request_t *request);
 bool dequeue(request_queue_t* q, http_request_t* request);
+bool dequeue_node(request_queue_t* q, client_request_node_t* node);
+bool enqueue_node(request_queue_t* q, client_request_node_t* node);
+
 bool peek(request_queue_t* q, http_request_t* request);
 bool peekRear(request_queue_t* q, http_request_t* request);
 void printQueue(request_queue_t* q);
