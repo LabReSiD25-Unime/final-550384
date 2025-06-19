@@ -6,14 +6,15 @@
 
 
 worker_pool_t *worker_pool;
-//redis_pool_t *redis_pool;
+redis_pool_t *redis_pool;
 
 int main() {
     const int SERVER_PORT = 8080;
     const int MAX_EVENTS = 10;
 
+    redis_pool =  malloc(sizeof(worker_pool_t));
 
-    //init_redis_pool(10,redis_pool);
+    init_redis_pool(10,redis_pool);
 
     // Inizializza il server
     int server_fd = initialize_server(SERVER_PORT);
@@ -54,3 +55,4 @@ int main() {
     
     return EXIT_SUCCESS;
 }
+

@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <stdbool.h>
 #include "requests_queue.h"
+#include "book.h"
 
 
 
@@ -23,10 +24,11 @@ extern worker_pool_t *worker_pool;
 void worker_pool_destroy(worker_pool_t *pool);
 void* worker_thread(void *arg);
 worker_pool_t* worker_pool_init(int num_threads, void* (*process_func)(void*));
-http_response_t* process_rest_request(http_request_t *requets);
-void crud_create(const http_request_t *request, http_response_t *response);
-
-
+http_response_t* process_rest_request(http_request_t *requets, redisContext *c);
+void crud_create(const http_request_t *request, http_response_t *response, redisContext *c );
+void crud_read(const http_request_t *request, http_response_t *response, redisContext *c );
+void crud_delete(const http_request_t *request, http_response_t *response, redisContext *c );
+void crud_update(const http_request_t *request, http_response_t *response, redisContext *c );
 #endif
 
 /* 

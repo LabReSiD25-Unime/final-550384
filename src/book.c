@@ -1,5 +1,7 @@
 #include "book.h"
 
+extern redis_pool_t *redis_pool;
+
 // Connessione a Redis
 redisContext* connect_redis() {
     redisContext *c = redisConnect("127.0.0.1", 6379);
@@ -201,10 +203,109 @@ int init_redis_pool(int pool_size,redis_pool_t * redis_pool) {
     return 0;
 }
 
-redisContext* get_redis_connection(redis_pool_t * redis_pool) {
+redisContext* get_redis_connection() {
+// Ottenimento di una connessione Redis dal pool
     pthread_mutex_lock(&redis_pool->mutex);
     redisContext *ctx = redis_pool->connections[redis_pool->current];
     redis_pool->current = (redis_pool->current + 1) % redis_pool->size;
     pthread_mutex_unlock(&redis_pool->mutex);
     return ctx;
+}
+
+
+
+int parse_book_json(const char* json_string, Book* book) {
+    if (!json_string || !book) return 0;
+    
+    // Crea una copia della stringa per manipolarla
+    char* json_copy = strdup(json_string);
+    if (!json_copy) return 0;
+    // Estrai id_book
+    double id_value = extract_numeric_value(json_copy, "id_book");
+    book->id = (int)id_value;
+        printf("Here\n");
+
+    // Estrai title
+    char* title_value = extract_string_value(json_copy, "title");
+    if (title_value) {
+        strncpy(book->title, title_value, sizeof(book->title) - 1);
+        book->title[sizeof(book->title) - 1] = '\0';
+        free(title_value);
+    } else {
+        book->title[0] = '\0';
+    }
+    
+    // Estrai author
+    char* author_value = extract_string_value(json_copy, "author");
+    if (author_value) {
+        strncpy(book->author, author_value, sizeof(book->author) - 1);
+        book->author[sizeof(book->author) - 1] = '\0';
+        free(author_value);
+    } else {
+        book->author[0] = '\0';
+    }
+    
+    // Estrai price
+    book->price = extract_numeric_value(json_copy, "price");
+    
+    free(json_copy);
+    return 1; // Successo
+}
+
+
+char* book_trim_whitespace(char* str) {
+    while (isspace(*str)) str++;
+    return str;
+}
+
+// Funzione per estrarre il valore tra virgolette
+char* extract_string_value(char* json, const char* key) {
+    char search_pattern[512];
+    snprintf(search_pattern, sizeof(search_pattern), "\"%s\"", key);
+    
+    char* key_pos = strstr(json, search_pattern);
+    if (!key_pos) return NULL;
+    
+    // Trova i due punti dopo la chiave
+    char* colon = strchr(key_pos, ':');
+    if (!colon) return NULL;
+    
+    // Salta spazi dopo i due punti
+    colon++;
+    colon = book_trim_whitespace(colon);
+    
+    // Deve iniziare con virgolette per essere una stringa
+    if (*colon != '"') return NULL;
+    colon++; // Salta la prima virgoletta
+    
+    // Trova la virgoletta di chiusura
+    char* end_quote = strchr(colon, '"');
+    if (!end_quote) return NULL;
+    
+    // Alloca memoria per il risultato
+    int len = end_quote - colon;
+    char* result = malloc(len + 1);
+    strncpy(result, colon, len);
+    result[len] = '\0';
+    
+    return result;
+}
+
+// Funzione per estrarre un valore numerico
+double extract_numeric_value(char* json, const char* key) {
+    char search_pattern[512];
+    snprintf(search_pattern, sizeof(search_pattern), "\"%s\"", key);
+    
+    char* key_pos = strstr(json, search_pattern);
+    if (!key_pos) return 0;
+    
+    // Trova i due punti dopo la chiave
+    char* colon = strchr(key_pos, ':');
+    if (!colon) return 0;
+    
+    // Salta spazi dopo i due punti
+    colon++;
+    colon = book_trim_whitespace(colon);
+    
+    return atof(colon);
 }

@@ -7,6 +7,7 @@
 #include "hiredis/hiredis.h"
 #include <pthread.h>
 #include <semaphore.h>
+
 #define REDIS_HOST "127.0.0.1"
 #define REDIS_PORT 6379
 
@@ -35,5 +36,9 @@ int book_exists(redisContext *c, int book_id);
 int delete_book(redisContext *c, int book_id);
 char* get_book_field(redisContext *c, int book_id, const char *field) ;
 void print_book(const Book *book) ;
+char* book_trim_whitespace(char* str);
+char* extract_string_value(char* json, const char* key);
+double extract_numeric_value(char* json, const char* key);
+int parse_book_json(const char* json_string, Book* book);
 
 #endif
