@@ -14,7 +14,7 @@
     "id_book": 1
 }
 
-/update/price {
+/update/book {
     "id_book" : 1,
     "new_price" : 120.0
 }
