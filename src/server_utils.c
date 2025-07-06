@@ -140,6 +140,7 @@ int handle_client_data(int client_fd) {
             return -1;
         }
         
+        //printf("REQ : %s\n", reciving_buffer);
         if (parse_http_request(receiving_buffer, request) != 0) {
             printf("Errore nel parsing della richiesta HTTP\n");
             free_http_request(request);
@@ -149,6 +150,7 @@ int handle_client_data(int client_fd) {
         client_request_node_t* newNode = (client_request_node_t*)malloc(sizeof(client_request_node_t));
         if (newNode == NULL) {
             printf("Errore: impossibile allocare memoria per il nuovo nodo\n");
+            free_http_request(request);
             return false;
         }
 
@@ -156,9 +158,13 @@ int handle_client_data(int client_fd) {
         newNode->next = NULL;
         newNode->client_fd = client_fd;
         
-        enqueue_node(worker_pool->queue, newNode);
+        //enqueue_node(worker_pool->queue, newNode);
 
-    
+        if (!enqueue_node(worker_pool->queue, newNode)) { 
+            free(newNode);
+            free_http_request(request);
+            return -1;
+        }
     
         return 0;
         
@@ -215,6 +221,8 @@ int initialize_server(int port) {
         return -1;
     }
     
+    /*
+
     // Inizializza epoll
     int epoll_fd = init_epoll_istance();
     if (epoll_fd < 0) {
@@ -231,6 +239,8 @@ int initialize_server(int port) {
         return -1;
     }
     
+    */
+    
     printf("Server in ascolto sulla porta %d\n", port);
     
     return server_fd; // Ritorna il file descriptor del server
@@ -245,8 +255,7 @@ int initialize_server(int port) {
         close(epoll_fd);
     }
     
-    // Cleanup della coda (se hai una funzione di cleanup)
-    // cleanup_queue(requests_q);
+
 }
 
 

@@ -43,38 +43,51 @@ worker_pool_t* worker_pool_init(int num_threads, void* (*process_func)(void*)) {
 }
 
 void* worker_thread(void *arg) {
-
+    // Copia il thread_id subito
+    int thread_id = *(int*)arg;
+    
     sleep(3);
-
+    
     redisContext *c = get_redis_connection();
     if (c == NULL) {
-        return;
+        return NULL;  // Fix: return NULL invece di return void
     }
 
-    client_request_node_t * incoming_request = malloc(sizeof(client_request_node_t));
+    client_request_node_t *incoming_request = malloc(sizeof(client_request_node_t));
+    if (!incoming_request) {
+        redisFree(c);
+        return NULL;
+    }
     
-    while (1){
-        if(dequeue_node(worker_pool->queue, incoming_request)){
-
+    while (1) {
+        // Assumendo che worker_pool sia una variabile globale visibile
+        if (dequeue_node(worker_pool->queue, incoming_request)) {
             http_response_t *response = process_rest_request(&incoming_request->request, c);
             
             if (response) {
-                
                 const char *response_string = get_response_string(response);
                 if (response_string) {
                     printf("\n--- Risposta raw ---\n");
                     printf("%s\n", response_string);
+                    send(incoming_request->client_fd, response_string, strlen(response_string), 0);
                 }
-                
-                send(incoming_request->client_fd,response_string,strlen(response_string),0);
                 free_http_response(response);
-            } 
+            }
+            
+            // Chiudi il socket del client
+            close(incoming_request->client_fd);
         }
-
+        
+        // Controllo per shutdown
+        if (worker_pool->shutdown) {
+            break;
+        }
+        
         printQueue(worker_pool->queue);
     }
     
-
+    free(incoming_request);
+    redisFree(c);
     return NULL;
 }
 
@@ -125,24 +138,21 @@ void crud_create(const http_request_t *request, http_response_t *response, redis
     }
 
     
-    if(save_book(c, &new_book) == -1){
+    if (save_book(c, &new_book) == -1) {
         set_response_status(response, HTTP_INTERNAL_SERVER_ERROR);
-        set_response_json(response, "{\"error\": \ Errore interno al server...riprova e sarai più fortunato... \"}");
+        set_response_json(response, "{\"error\": \"Errore interno al server...riprova e sarai più fortunato...\"}");
         add_response_header(response, "X-Custom-Header", "MyValue");
+        return;  // Importante: return dopo l'errore
     }
     
-
-    
-
-    set_response_status(response, HTTP_OK);
+    set_response_status(response, HTTP_CREATED);
     set_response_json(response, request->body);
     add_response_header(response, "X-Custom-Header", "MyValue");
 
-
 }
 
-void crud_read(const http_request_t *request, http_response_t *response, redisContext *c ){
-    if(strncmp(request->path, "/get/books", 11) != 0) {
+void crud_read(const http_request_t *request, http_response_t *response, redisContext *c) {
+    if (strncmp(request->path, "/get/books", 11) != 0) {
         printf("Endpoint non supportato: %s\n", request->path);
         set_response_status(response, HTTP_NOT_FOUND);
         set_response_json(response, "{\"error\": \"Endpoint non trovato\"}");
@@ -150,24 +160,24 @@ void crud_read(const http_request_t *request, http_response_t *response, redisCo
     }
 
     Book new_book;
-
     if (parse_book_json(request->body, &new_book)) {
         printf("Parsing completato con successo!\n\n");
     } else {
         printf("Errore durante il parsing del JSON\n");
-
+        set_response_status(response, HTTP_BAD_REQUEST);
+        set_response_json(response, "{\"error\": \"JSON non valido\"}");
+        return;
     }
 
-    Book *loaded_book = load_book(c, new_book.id) ;
-    
-    if(loaded_book== NULL){
-        set_response_status(response, HTTP_INTERNAL_SERVER_ERROR);
-        set_response_json(response, "{\"error\": \ Errore interno al server...riprova e sarai più fortunato... \"}");
-        add_response_header(response, "X-Custom-Header", "MyValue");
+    Book *loaded_book = load_book(c, new_book.id);
+    if (loaded_book == NULL) {
+        set_response_status(response, HTTP_NOT_FOUND);
+        set_response_json(response, "{\"error\": \"Libro non trovato\"}");
+        return;
     }
     
-    char resp_body[256];
-    snprintf(resp_body, 256,
+    char resp_body[512];  // Buffer più grande per sicurezza
+    int ret = snprintf(resp_body, sizeof(resp_body),
         "{\n"
         "    \"id_book\": %d,\n"
         "    \"title\": \"%s\",\n"
@@ -175,13 +185,19 @@ void crud_read(const http_request_t *request, http_response_t *response, redisCo
         "    \"price\": %.2f\n"
         "}",
         loaded_book->id, loaded_book->title, loaded_book->author, loaded_book->price);
-
     
+    if (ret >= sizeof(resp_body)) {
+        set_response_status(response, HTTP_INTERNAL_SERVER_ERROR);
+        set_response_json(response, "{\"error\": \"Response troppo grande\"}");
+        free(loaded_book);  // Assumendo che esista questa funzione
+        return;
+    }
+
     set_response_status(response, HTTP_OK);
     set_response_json(response, resp_body);
     add_response_header(response, "X-Custom-Header", "MyValue");
-
-
+    
+    free(loaded_book);  // Libera la memoria
 }
 
 void crud_delete(const http_request_t *request, http_response_t *response, redisContext *c ){
@@ -220,7 +236,7 @@ void crud_delete(const http_request_t *request, http_response_t *response, redis
         new_book.id, new_book.title, new_book.author, new_book.price);
 
     
-    set_response_status(response, HTTP_OK);
+    set_response_status(response,  HTTP_NO_CONTENT);
     set_response_json(response, resp_body);
     add_response_header(response, "X-Custom-Header", "MyValue");
 

@@ -10,11 +10,13 @@
     "id_book": 1,
 }
 
-/delete/book {
-    "id_book": 1
-}
 
 /update/book {
     "id_book" : 1,
     "new_price" : 120.0
+}
+
+
+/delete/book {
+    "id_book": 1
 }

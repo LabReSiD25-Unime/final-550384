@@ -180,9 +180,6 @@ bool enqueue_node(request_queue_t* q, client_request_node_t *node) {
         return false;
     }
 
-
-
-    
     // Inserisci nella coda
     if (isEmptyUnsafe(q)) {
         q->front = node;

@@ -50,7 +50,6 @@ int main() {
         }
     }
     
-    // Cleanup
     cleanup_resources(server_fd, epoll_fd);
     
     return EXIT_SUCCESS;
