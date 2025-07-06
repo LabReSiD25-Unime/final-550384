@@ -69,9 +69,6 @@ rebuild: clean all
 run: $(TARGET)
 	./$(TARGET)
 
-# Debug con gdb
-debug: $(TARGET)
-	gdb ./$(TARGET)
 
 # Mostra informazioni sul progetto
 info:
