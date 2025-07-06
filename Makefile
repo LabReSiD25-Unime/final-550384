@@ -84,19 +84,6 @@ info:
 	@echo "Oggetti: $(OBJECTS)"
 	@echo "Target: $(TARGET)"
 
-# Installa dipendenze automatiche
-$(OBJDIR)/%.d: $(SRCDIR)/%.c | $(OBJDIR)
-	@$(CC) -MM $(CFLAGS) $(INCLUDES) $< | sed 's|$*.o|$(OBJDIR)/$*.o $(OBJDIR)/$*.d|g' > $@
-
-$(OBJDIR)/main.d: main.c | $(OBJDIR)
-	@$(CC) -MM $(CFLAGS) $(INCLUDES) $< | sed 's|main.o|$(OBJDIR)/main.o $(OBJDIR)/main.d|g' > $@
-
-# Include le dipendenze solo se non stiamo facendo clean
-ifneq ($(MAKECMDGOALS),clean)
-ifneq ($(MAKECMDGOALS),clean-obj)
--include $(OBJECTS:.o=.d)
-endif
-endif
 
 # Dichiara target che non corrispondono a file
 .PHONY: all clean clean-obj rebuild run debug info
